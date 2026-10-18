@@ -1,12 +1,17 @@
 {
-"manifest_version": 3,
-"name": "Gmail Auto-Fill Domain",
-"version": "1.0",
-"description": "Automatically appends gmail.com when typing @ in Gmail inputs.",
-"content_scripts": [
-    {
-    "matches": ["https://mail.google.com/*"],
-    "js": ["content.js"]
-    }
-]
+    "manifest_version": 3,
+    "name": "Gmail Auto-Fill Domain",
+    "version": "1.0",
+    "description": "Automatically appends gmail.com when typing @ in email fields.",
+    "content_scripts": [
+        {
+        "matches": [
+            "https://mail.google.com/*",
+            "https://accounts.google.com/*",
+            "https://*.google.com/*",
+            "https://*/*"
+        ],
+        "js": ["content.js"]
+        }
+    ]
 }
