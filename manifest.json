@@ -9,9 +9,11 @@
             "https://mail.google.com/*",
             "https://accounts.google.com/*",
             "https://*.google.com/*",
+            "https://*.gap.com/*",
             "https://*/*"
         ],
-        "js": ["content.js"]
+        "js": ["content.js"],
+        "all_frames": true
         }
     ]
 }

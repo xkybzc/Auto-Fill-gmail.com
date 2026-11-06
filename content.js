@@ -1,3 +1,61 @@
+function isPasswordField(target) {
+    if (target.tagName !== 'INPUT') {
+        return false;
+    }
+
+    const type = (target.getAttribute('type') || '').toLowerCase();
+    const autocomplete = (target.getAttribute('autocomplete') || '').toLowerCase();
+    const name = (target.getAttribute('name') || '').toLowerCase();
+    const id = (target.getAttribute('id') || '').toLowerCase();
+
+    return (
+        type === 'password' ||
+        autocomplete.includes('password') ||
+        name.includes('password') ||
+        name.includes('passcode') ||
+        id.includes('password') ||
+        id.includes('passcode')
+    );
+}
+
+function hidePasswordRevealButton() {
+    const style = document.createElement('style');
+    style.textContent = `
+        input[type="password"]::-ms-reveal,
+        input[type="password"]::-ms-clear {
+            display: none;
+        }
+        input[type="password"]::-webkit-credentials-auto-fill-button {
+            visibility: hidden;
+            pointer-events: none;
+        }
+    `;
+    document.documentElement.appendChild(style);
+}
+
+hidePasswordRevealButton();
+
+const DOMAIN = 'gmail.com';
+
+// type="email" (and number, etc.) inputs don't expose the caret:
+// selectionStart is null and setSelectionRange throws.
+function supportsSelection(input) {
+    try {
+        return input.selectionStart !== null;
+    } catch (err) {
+        return false;
+    }
+}
+
+// Set the value through the native setter so frameworks like React, which
+// wrap the element's `value` property to track changes, notice the update.
+function setNativeValue(element, value) {
+    const proto = element instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(element, value);
+}
+
 function handleInput(e) {
     // Do not reinsert the domain while the user is deleting text.
     if (
@@ -10,10 +68,23 @@ function handleInput(e) {
 
     const target = e.target;
 
+    // Never modify password fields, including password inputs rendered as text.
+    if (isPasswordField(target)) {
+        return;
+    }
+
     // Handle standard input fields
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
         const val = target.value;
-        const cursorPos = target.selectionStart;
+        const caretKnown = supportsSelection(target);
+
+        // Without a caret position we can't tell where the user is typing,
+        // so only act when '@' was just typed and assume it's at the end.
+        if (!caretKnown && e.data !== '@') {
+            return;
+        }
+
+        const cursorPos = caretKnown ? target.selectionStart : val.length;
 
         // Check if the last typed character before cursor was '@'
         if (cursorPos > 0 && val[cursorPos - 1] === '@') {
@@ -21,13 +92,19 @@ function handleInput(e) {
             const after = val.slice(cursorPos);
 
             // Check if gmail.com isn't already directly following the @
-            if (!after.startsWith('gmail.com')) {
-                target.value = before + 'gmail.com' + after;
+            if (!after.startsWith(DOMAIN)) {
+                setNativeValue(target, before + DOMAIN + after);
+
                 // Move cursor right after 'gmail.com'
-                const newPos = cursorPos + 'gmail.com'.length;
-                target.setSelectionRange(newPos, newPos);
+                if (caretKnown) {
+                    const newPos = cursorPos + DOMAIN.length;
+                    target.setSelectionRange(newPos, newPos);
+                }
+
+                // Let the page's framework (React, Vue, ...) sync its state.
+                target.dispatchEvent(new Event('input', { bubbles: true }));
             }
-            }
+        }
     }
     // Handle rich-text / contenteditable areas (e.g., recipient input chips)
     else if (target.isContentEditable) {
@@ -70,22 +147,73 @@ function handleKeydown(e) {
     }, 0);
 }
 
-// Attach event listener to newly detected inputs
-function attachListener(element) {
-    if (!element.dataset.gmailAutoDomainAttached) {
-        element.addEventListener('input', handleInput);
-        element.addEventListener('keydown', handleKeydown);
-        element.dataset.gmailAutoDomainAttached = 'true';
+function isEditableTarget(target) {
+    return (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLElement && target.isContentEditable
+    );
+}
+
+function getEditableTarget(e) {
+    const path = typeof e.composedPath === 'function'
+        ? e.composedPath()
+        : [e.target];
+
+    for (const target of path) {
+        if (isEditableTarget(target)) {
+            return target;
+        }
+    }
+
+    return null;
+}
+
+function handleDocumentInput(e) {
+    const target = getEditableTarget(e);
+    if (target) {
+        handleInput({
+            target,
+            inputType: e.inputType,
+            data: e.data
+        });
     }
 }
 
-// Observe Gmail's dynamic UI additions
-const observer = new MutationObserver(() => {
-    const inputs = document.querySelectorAll('input, [contenteditable="true"]');
-    inputs.forEach(attachListener);
-});
+function handleDocumentKeydown(e) {
+    const target = getEditableTarget(e);
+    if (target) {
+        handleKeydown({
+            currentTarget: target,
+            key: e.key
+        });
 
-observer.observe(document.body, {
-    childList: true,
-    subtree: true
-});
+        if (e.key === '@') {
+            setTimeout(() => {
+                handleInput({
+                    target,
+                    inputType: 'insertText',
+                    data: '@'
+                });
+            }, 0);
+        }
+    }
+}
+
+function handleDocumentKeyup(e) {
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+        return;
+    }
+
+    const target = getEditableTarget(e);
+    if (target) {
+        handleInput({
+            target,
+            inputType: ''
+        });
+    }
+}
+
+document.addEventListener('input', handleDocumentInput, true);
+document.addEventListener('keydown', handleDocumentKeydown, true);
+document.addEventListener('keyup', handleDocumentKeyup, true);
