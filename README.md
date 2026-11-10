@@ -1,8 +1,8 @@
 # Gmail Auto-Fill Domain
 
-A browser extension for that adds `gmail.com` for when type @.
+A browser extension that adds `gmail.com` when type @.
 
-`john@` will becomes `john@gmail.com`.
+`john@` will become `john@gmail.com`.
 
 ## Features
 
@@ -12,7 +12,7 @@ A browser extension for that adds `gmail.com` for when type @.
   - have `autocomplete` set to `email` or `username`, or
   - have a name, id, placeholder or label containing `email`, `e-mail`,
     `user`, `login`, `identifier` or `recipient`.
-- Never add in password, search, comment, chat or any other type of field.
+- Never add `gmail.com` in password, search, comment, chat or any other type of field.
 - Doesn't add `gmail.com` again after you delete it, or if it's already there.
 - Works with sites built on frameworks such as React.
 
