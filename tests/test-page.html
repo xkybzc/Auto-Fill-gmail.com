@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auto-Fill Test Page</title>
+<style>
+    :root {
+        --bg: #f7f7f5; --fg: #1d1d1b; --muted: #6b6b66; --card: #ffffff;
+        --border: #deded8; --pass: #1f7a3f; --fail: #b3261e; --pass-bg: #e6f4ea; --fail-bg: #fce8e6;
+    }
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg: #1a1a19; --fg: #ececea; --muted: #9a9a94; --card: #242423;
+            --border: #3a3a38; --pass: #7fd19b; --fail: #f28b82; --pass-bg: #1e3326; --fail-bg: #3b1f1d;
+        }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px 16px; background: var(--bg); color: var(--fg);
+           font: 15px/1.5 system-ui, sans-serif; }
+    main { max-width: 900px; margin: 0 auto; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    p { color: var(--muted); margin: 0 0 16px; }
+    button { font: inherit; padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border);
+             background: var(--card); color: var(--fg); cursor: pointer; }
+    #summary { margin: 16px 0; padding: 12px 16px; border-radius: 8px; font-weight: 600;
+               background: var(--card); border: 1px solid var(--border); }
+    #summary.pass { background: var(--pass-bg); color: var(--pass); }
+    #summary.fail { background: var(--fail-bg); color: var(--fail); }
+    table { width: 100%; border-collapse: collapse; background: var(--card);
+            border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { font-size: 13px; color: var(--muted); font-weight: 600; }
+    td.field input, td.field textarea, td.field [contenteditable], td.field iframe {
+        width: 100%; min-width: 160px; font: inherit; padding: 4px 6px;
+        border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--fg); }
+    td.field iframe { height: 44px; padding: 0; }
+    td.field [contenteditable] { min-height: 30px; }
+    td.field label, td.field span { display: block; font-size: 12px; color: var(--muted); }
+    .result { font-weight: 600; white-space: nowrap; }
+    .result.pass { color: var(--pass); }
+    .result.fail { color: var(--fail); }
+    code { font-size: 12px; color: var(--muted); }
+    .table-wrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+    <h1>Gmail Auto-Fill: test page</h1>
+    <p>Load the extension in Edge, then open this file. The tests run automatically.
+       You can also type <b>@</b> in any field below by hand to try it yourself.</p>
+    <button id="run">Run tests again</button>
+    <div id="summary">Waiting for tests to run...</div>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Case</th><th>Field</th><th>Expected</th><th>Result</th></tr></thead>
+            <tbody id="cases"></tbody>
+        </table>
+    </div>
+</main>
+
+<script>
+// Each case describes one kind of field found on real websites.
+// expect: 'fill' = gmail.com should be added, 'skip' = field must stay unchanged.
+// action: 'type' = type "john@", 'delete' / 'deleteToAt' = press Backspace.
+const CASES = [
+    // Fields that SHOULD get gmail.com
+    { name: 'type="email"', html: '<input type="email">', expect: 'fill' },
+    { name: 'name="email"', html: '<input type="text" name="email">', expect: 'fill' },
+    { name: 'id="username"', html: '<input id="username">', expect: 'fill' },
+    { name: 'autocomplete="username"', html: '<input autocomplete="username" name="f1">', expect: 'fill' },
+    { name: 'autocomplete="email"', html: '<input autocomplete="email" name="f2">', expect: 'fill' },
+    { name: 'Placeholder "Email address"', html: '<input placeholder="Email address">', expect: 'fill' },
+    { name: 'Google sign-in style (name="identifier")', html: '<input type="text" name="identifier">', expect: 'fill' },
+    { name: 'GitHub sign-in style (name="login")', html: '<input type="text" name="login" id="login_field">', expect: 'fill' },
+    { name: 'Gmail compose "To" box', html: '<input aria-label="To recipients">', expect: 'fill' },
+    { name: '<label> says "Username or email"', html: '<label for="t-acc">Username or email</label><input id="t-acc">', expect: 'fill' },
+    { name: 'aria-labelledby "E-mail"', html: '<span id="lbl-x">E-mail</span><input aria-labelledby="lbl-x">', expect: 'fill' },
+    { name: 'Textarea for recipients', html: '<textarea name="recipients"></textarea>', expect: 'fill' },
+    { name: 'Rich-text recipients box', html: '<div contenteditable="true" aria-label="Email recipients"></div>', expect: 'fill' },
+    { name: 'Inside a shadow DOM', shadow: '<input type="email">', expect: 'fill' },
+    { name: 'Inside an iframe', iframe: '<input type="email" style="width:95%">', expect: 'fill' },
+
+    // Fields that must NOT change
+    { name: 'Password box named "email"', html: '<input type="password" name="email">', expect: 'skip' },
+    { name: 'Text box named "user_password"', html: '<input type="text" name="user_password">', expect: 'skip' },
+    { name: 'Email passcode box', html: '<input type="text" name="passcode" placeholder="Email passcode">', expect: 'skip' },
+    { name: 'Comment box (GitHub @mention)', html: '<textarea placeholder="Leave a comment"></textarea>', expect: 'skip' },
+    { name: 'Chat message box', html: '<div contenteditable="true" aria-label="Message"></div>', expect: 'skip' },
+    { name: 'Search box "Search users"', html: '<input type="search" placeholder="Search users">', expect: 'skip' },
+    { name: 'Plain search query', html: '<input type="text" name="q">', expect: 'skip' },
+    { name: 'Social post box', html: '<input type="text" placeholder="What\'s happening?">', expect: 'skip' },
+
+    // Deleting must not bring gmail.com back
+    { name: 'Backspace on "john@gmail.com"', html: '<input type="email">', action: 'delete', expect: 'john@gmail.co' },
+    { name: 'Backspace back to "john@"', html: '<input type="text" name="email">', action: 'deleteToAt', expect: 'john@' },
+];
+
+const nextTick = (ms = 50) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Build the field for a case and return the editable element
+function buildField(testCase, cell) {
+    if (testCase.shadow) {
+        const host = document.createElement('div');
+        host.attachShadow({ mode: 'open' }).innerHTML = testCase.shadow;
+        cell.appendChild(host);
+        return Promise.resolve(host.shadowRoot.querySelector('input, textarea, [contenteditable]'));
+    }
+    if (testCase.iframe) {
+        const frame = document.createElement('iframe');
+        frame.srcdoc = `<!doctype html><body style="margin:4px">${testCase.iframe}</body>`;
+        cell.appendChild(frame);
+        return new Promise((resolve) => {
+            frame.addEventListener('load', () => {
+                resolve(frame.contentDocument.querySelector('input, textarea, [contenteditable]'));
+            }, { once: true });
+        });
+    }
+    cell.innerHTML = testCase.html;
+    return Promise.resolve(cell.querySelector('input, textarea, [contenteditable]'));
+}
+
+const isRichText = (el) => !('value' in el);
+const readValue = (el) => (isRichText(el) ? el.textContent : el.value);
+
+// Put text in the field with the caret at the end
+function setValue(el, text) {
+    if (isRichText(el)) {
+        el.textContent = text;
+        const win = el.ownerDocument.defaultView;
+        const range = el.ownerDocument.createRange();
+        range.setStart(el.firstChild || el, text.length);
+        range.collapse(true);
+        const selection = win.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+    } else {
+        el.value = text;
+        try { el.setSelectionRange(text.length, text.length); } catch (err) { /* email inputs */ }
+    }
+}
+
+// Fire the same events a real key press fires, in the same order
+function pressKey(el, key, newText, inputType) {
+    const win = el.ownerDocument.defaultView;
+    const opts = { key, bubbles: true, composed: true };
+    el.dispatchEvent(new win.KeyboardEvent('keydown', opts));
+    setValue(el, newText);
+    el.dispatchEvent(new win.InputEvent('input', {
+        inputType, data: key.length === 1 ? key : null, bubbles: true, composed: true,
+    }));
+    el.dispatchEvent(new win.KeyboardEvent('keyup', opts));
+}
+
+async function runCase(testCase, el) {
+    el.focus();
+    if (testCase.action === 'delete') {
+        setValue(el, 'john@gmail.com');
+        pressKey(el, 'Backspace', 'john@gmail.co', 'deleteContentBackward');
+    } else if (testCase.action === 'deleteToAt') {
+        setValue(el, 'john@g');
+        pressKey(el, 'Backspace', 'john@', 'deleteContentBackward');
+    } else {
+        setValue(el, 'john');
+        pressKey(el, '@', 'john@', 'insertText');
+    }
+    await nextTick();
+    el.blur();
+
+    const actual = readValue(el);
+    const expected = testCase.expect === 'fill' ? 'john@gmail.com'
+        : testCase.expect === 'skip' ? 'john@'
+        : testCase.expect;
+    return { actual, expected, passed: actual === expected };
+}
+
+// The content script adds a style tag with "-ms-reveal" when it loads
+function extensionLoaded() {
+    return Array.from(document.querySelectorAll('style'))
+        .some((style) => style.textContent.includes('-ms-reveal'));
+}
+
+async function runAll() {
+    const tbody = document.getElementById('cases');
+    const summary = document.getElementById('summary');
+    tbody.innerHTML = '';
+    summary.className = '';
+    summary.textContent = 'Running...';
+
+    if (!extensionLoaded()) {
+        summary.className = 'fail';
+        summary.textContent = 'The extension is not running on this page. See the setup steps in tests/README.md.';
+        return;
+    }
+
+    let failures = 0;
+    for (const testCase of CASES) {
+        const row = tbody.insertRow();
+        row.insertCell().textContent = testCase.name;
+        const fieldCell = row.insertCell();
+        fieldCell.className = 'field';
+        const expectCell = row.insertCell();
+        const resultCell = row.insertCell();
+
+        const el = await buildField(testCase, fieldCell);
+        await nextTick();
+        const { actual, expected, passed } = await runCase(testCase, el);
+        if (!passed) failures++;
+
+        expectCell.innerHTML = `<code>${expected}</code>`;
+        resultCell.innerHTML = passed
+            ? '<span class="result pass">PASS</span>'
+            : `<span class="result fail">FAIL</span><br><code>got "${actual}"</code>`;
+    }
+
+    summary.className = failures ? 'fail' : 'pass';
+    summary.textContent = failures
+        ? `${failures} of ${CASES.length} tests failed.`
+        : `All ${CASES.length} tests passed.`;
+}
+
+document.getElementById('run').addEventListener('click', runAll);
+// Content scripts load after the page, so give it a moment before starting
+window.addEventListener('load', () => setTimeout(runAll, 500));
+</script>
+</body>
+</html>
